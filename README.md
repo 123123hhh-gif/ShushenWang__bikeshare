@@ -34,21 +34,21 @@ python -m unittest discover -s tests/student -v
 
 | File | Contents |
 | --- | --- |
-| `rules.py` | Constants, `parse_int`, `pence_to_pounds`, `load_days`, `completed_trips`, `breakages`. |
-| `station.py` | `Station` with docks, bikes, `free_docks`, `dock`, and `undock`. |
-| `bikeshare.py` | `DEFAULT_STATIONS` and `BikeShare`, including `step()` and getters. |
+| `rules.py` | Functions only: `parse_int`, `pence_to_pounds`, `load_days`, `completed_trips`, `breakages`. |
+| `station.py` | `Station` with `station_id`, `free_docks`, `add_bikes`, and `remove_bikes`. |
+| `bikeshare.py` | `DEFAULT_STATIONS`, `BikeShare` class attributes/constants, and `step()`. |
 | `main.py` | Text interface (no classes): load trips, ask for decisions, print summaries. |
 | `data/trips.json` | Expected trips for up to 14 days. |
 | `tests/test_public.py` | Staff public tests (do not change). |
-| `tests/student/` | Student tests for rules, stations, simulation, and the CLI. |
+| `tests/student/` | Student tests for `rules.py`, `Station`, and `BikeShare`. |
 
 ## Copying note
 
-`BikeShare.__init__` builds `self.stations` with `copy.deepcopy` of
-`DEFAULT_STATIONS` (or a supplied map). Each value is a mutable `Station`. A
-plain assignment, or `copy.copy` of the dict alone, would leave simulations
-sharing the same `Station` objects, so a van move in one run would change bikes
-in another and rewrite the module defaults. The test
+`BikeShare.__init__` builds each `Station` from a deep copy of
+`DEFAULT_STATIONS` (a dict of plain dicts) or from a caller-supplied map. The
+live state holds mutable `Station` objects. A shared reference to those nested
+dicts, or later sharing the same `Station` between two simulations, would let
+one van move rewrite another run or the module defaults. The test
 `test_c1_default_stations_and_simulations_stay_independent` in
 `tests/student/test_bikeshare.py` steps one `BikeShare()` and checks that a
 second instance and `DEFAULT_STATIONS` still hold the starting bike counts.

@@ -1,254 +1,255 @@
-"""Tests for Station, BikeShare.step(), and the C1–C3 copy requirements."""
+"""Tests for Station, BikeShare.step(), and the C1-C3 copy requirements.
+
+Expected values are worked out by hand from the rules: revenue 200 per trip,
+van 500 per move, repair 200 per bike, fixed cost 2400 per day, and
+broken = ceil(completed * 10 / 100) taken from the destination.
+"""
 
 import unittest
-from unittest.mock import patch
 
 from bikeshare import DEFAULT_STATIONS, BikeShare
-from rules import DAILY_COST, FARE, MAX_DAYS, REPAIR_COST, VAN_COST
 from station import Station
 
 
-DAY_ONE = {
-    "moves": [("B", "A", 3)],
-    "repairs": 0,
-}
-DAY_ONE_TRIPS = [("A", "B", 8), ("C", "B", 15), ("B", "C", 4)]
-START_BIKES = {"A": 12, "B": 8, "C": 6}
+def no_action():
+    return {"moves": [], "repairs": 0}
+
+
+def worked_example_decision():
+    return {"moves": [("B", "A", 3)], "repairs": 0}
+
+
+def worked_example_trips():
+    return [("A", "B", 8), ("C", "B", 15), ("B", "C", 4)]
+
+
+def two_stations(a_capacity, a_bikes, b_capacity, b_bikes):
+    return {
+        "A": {"name": "Depot", "capacity": a_capacity, "bikes": a_bikes},
+        "B": {"name": "Other", "capacity": b_capacity, "bikes": b_bikes},
+    }
 
 
 class StationTests(unittest.TestCase):
-    def test_free_docks_are_capacity_minus_bikes(self):
-        self.assertEqual(Station("A", "Temple Meads", 20, 12).free_docks(), 8)
-        self.assertEqual(Station("C", "Clifton", 12, 0).free_docks(), 12)
-        self.assertEqual(Station("B", "Harbourside", 15, 15).free_docks(), 0)
-
-    def test_dock_and_undock_change_the_bike_count(self):
+    def test_free_docks_follow_added_and_removed_bikes(self):
         station = Station("B", "Harbourside", 15, 8)
-        station.undock(3)
-        self.assertEqual(station.bikes, 5)
-        self.assertEqual(station.free_docks(), 10)
-        station.dock(4)
+        station.remove_bikes(3)
+        station.add_bikes(4)
         self.assertEqual(station.bikes, 9)
-        station.undock(0)
-        station.dock(0)
-        self.assertEqual(station.bikes, 9)
+        self.assertEqual(station.free_docks(), 6)
 
-    def test_rejects_more_bikes_than_docks(self):
-        with self.assertRaises(ValueError):
-            Station("A", "Temple Meads", 20, 21)
-        with self.assertRaises(ValueError):
-            Station("A", "Temple Meads", 20, -1)
+    def test_invalid_constructor_values_are_rejected(self):
+        cases = {
+            "empty id": ("", "Temple Meads", 20, 12),
+            "empty name": ("A", "", 20, 12),
+            "zero capacity": ("A", "Temple Meads", 0, 0),
+            "more bikes than docks": ("A", "Temple Meads", 20, 21),
+            "bool bikes": ("A", "Temple Meads", 20, True),
+        }
+        for label, arguments in cases.items():
+            with self.subTest(label=label):
+                with self.assertRaises(ValueError):
+                    Station(*arguments)
 
-    def test_rejects_bad_types_and_overfull_or_empty_moves(self):
-        with self.assertRaises(TypeError):
-            Station(1, "Temple Meads", 20, 12)
-        with self.assertRaises(TypeError):
-            Station("A", "Temple Meads", 20.0, 12)
-        station = Station("A", "Temple Meads", 20, 12)
+    def test_cannot_remove_more_bikes_than_present(self):
+        station = Station("C", "Clifton", 12, 6)
         with self.assertRaises(ValueError):
-            station.undock(13)
+            station.remove_bikes(7)
+
+    def test_cannot_add_bikes_to_a_full_station(self):
+        station = Station("B", "Harbourside", 15, 15)
         with self.assertRaises(ValueError):
-            station.dock(9)
-        with self.assertRaises(TypeError):
-            station.dock(True)
+            station.add_bikes(1)
 
 
-class OrderOfOperationsTests(unittest.TestCase):
-    def test_moves_happen_before_repairs_and_trips(self):
+class ConstructorTests(unittest.TestCase):
+    def test_invalid_arguments_are_rejected(self):
+        cases = {
+            "zero days": {"days": 0},
+            "fifteen days": {"days": 15},
+            "negative cash": {"cash": -1},
+            "negative workshop": {"workshop": -1},
+            "no depot": {"stations": {"B": {"name": "Harbourside", "capacity": 15, "bikes": 8}}},
+        }
+        for label, arguments in cases.items():
+            with self.subTest(label=label):
+                with self.assertRaises(ValueError):
+                    BikeShare(**arguments)
+
+
+class StepTests(unittest.TestCase):
+    def test_worked_example_day_one(self):
         sim = BikeShare()
-        record = sim.step(DAY_ONE, DAY_ONE_TRIPS)
-        self.assertEqual(record["moves"], [("B", "A", 3)])
-        self.assertEqual(record["trips"][0]["completed"], 8)
-        self.assertEqual(record["trips"][1]["completed"], 3)
-        self.assertEqual(record["trips"][1]["lost"], 12)
-        self.assertEqual(record["trips"][2]["completed"], 4)
+        record = sim.step(worked_example_decision(), worked_example_trips())
+        self.assertEqual(record["day"], 1)
+        self.assertEqual(record["completed"], 15)
+        self.assertEqual(record["lost"], 12)
+        self.assertEqual(record["broken"], 3)
+        self.assertEqual(record["revenue"], 3000)
+        self.assertEqual(record["van_cost"], 500)
+        self.assertEqual(record["repair_cost"], 0)
+        self.assertEqual(record["fixed_cost"], 2400)
+        self.assertEqual(record["opening_cash"], 10000)
+        self.assertEqual(record["closing_cash"], 10100)
         self.assertEqual(record["bikes"], {"A": 7, "B": 10, "C": 6})
         self.assertEqual(record["workshop"], 3)
+        self.assertFalse(record["bankrupt"])
 
-    def test_repairs_use_space_left_after_moves_and_before_trips(self):
-        sim = BikeShare()
-        sim.step(DAY_ONE, DAY_ONE_TRIPS)
-        before = sim.get_bikes()
-        self.assertEqual(before["A"], 7)
-        record = sim.step(
-            {"moves": [], "repairs": 2},
-            [("A", "B", 10), ("A", "C", 4), ("C", "B", 6), ("B", "A", 5)],
-        )
-        self.assertEqual(record["repairs"], 2)
-        self.assertEqual(record["bikes"], {"A": 4, "B": 9, "C": 8})
-        self.assertEqual(record["workshop"], 5)
-        self.assertEqual(sum(record["bikes"].values()) + record["workshop"], 26)
+    def test_van_moves_happen_before_trips(self):
+        # Move B->A 3 gives A 3 bikes, so A->B 3 completes 3 (not 0).
+        sim = BikeShare(stations=two_stations(10, 0, 10, 5))
+        record = sim.step({"moves": [("B", "A", 3)], "repairs": 0}, [("A", "B", 3)])
+        self.assertEqual(record["completed"], 3)
 
-    def test_chained_moves_are_applied_in_order(self):
-        sim = BikeShare()
-        record = sim.step(
-            {"moves": [("B", "A", 5), ("A", "C", 4)], "repairs": 0},
-            [],
-        )
-        self.assertEqual(record["bikes"], {"A": 13, "B": 3, "C": 10})
-        self.assertEqual(record["van_cost"], 2 * VAN_COST)
-
-
-class MoneyTests(unittest.TestCase):
-    def test_itemised_costs_match_the_worked_example(self):
-        sim = BikeShare()
-        record = sim.step(DAY_ONE, DAY_ONE_TRIPS)
-        self.assertEqual(record["revenue"], 15 * FARE)
-        self.assertEqual(record["van_cost"], 1 * VAN_COST)
-        self.assertEqual(record["repair_cost"], 0)
-        self.assertEqual(record["daily_cost"], DAILY_COST)
-        self.assertEqual(record["opening_cash"], 10000)
-        self.assertEqual(
-            record["closing_cash"],
-            10000 + 15 * FARE - VAN_COST - DAILY_COST,
-        )
-        self.assertEqual(sim.get_cash(), 10100)
-
-    def test_repair_and_van_costs_are_subtracted(self):
-        sim = BikeShare()
-        sim.step(DAY_ONE, DAY_ONE_TRIPS)
-        record = sim.step({"moves": [("C", "B", 1)], "repairs": 2}, [])
-        self.assertEqual(record["revenue"], 0)
-        self.assertEqual(record["van_cost"], VAN_COST)
-        self.assertEqual(record["repair_cost"], 2 * REPAIR_COST)
-        self.assertEqual(
-            record["closing_cash"],
-            10100 - VAN_COST - 2 * REPAIR_COST - DAILY_COST,
-        )
-        self.assertEqual(record["bikes"], {"A": 9, "B": 11, "C": 5})
+    def test_repaired_bikes_are_docked_at_depot_before_trips(self):
+        # Repair 2 -> A has 2; A->B 2 completes 2; ceil(0.2) = 1 broken from B.
+        sim = BikeShare(stations=two_stations(10, 0, 10, 0), workshop=2)
+        record = sim.step({"moves": [], "repairs": 2}, [("A", "B", 2)])
+        self.assertEqual(record["completed"], 2)
+        self.assertEqual(record["repair_cost"], 400)
+        self.assertEqual(record["bikes"], {"A": 0, "B": 1})
         self.assertEqual(record["workshop"], 1)
+
+    def test_moves_can_chain_through_a_station(self):
+        stations = two_stations(10, 0, 10, 6)
+        stations["C"] = {"name": "Third", "capacity": 10, "bikes": 0}
+        sim = BikeShare(stations=stations)
+        record = sim.step({"moves": [("B", "A", 4), ("A", "C", 4)], "repairs": 0}, [])
+        self.assertEqual(record["bikes"], {"A": 0, "B": 2, "C": 4})
+        self.assertEqual(record["van_cost"], 1000)
+
+    def test_full_van_of_ten_bikes_is_allowed(self):
+        sim = BikeShare(stations=two_stations(20, 10, 10, 0))
+        record = sim.step({"moves": [("A", "B", 10)], "repairs": 0}, [])
+        self.assertEqual(record["bikes"], {"A": 0, "B": 10})
+
+    def test_trips_to_a_full_station_are_all_lost(self):
+        sim = BikeShare(stations=two_stations(5, 5, 5, 5))
+        record = sim.step(no_action(), [("A", "B", 3)])
+        self.assertEqual(record["completed"], 0)
+        self.assertEqual(record["lost"], 3)
+        self.assertEqual(record["broken"], 0)
+        self.assertEqual(record["closing_cash"], 7600)
 
 
 class BankruptcyAndFinishTests(unittest.TestCase):
-    def test_exactly_zero_cash_is_not_bankrupt(self):
-        sim = BikeShare()
-        for _ in range(4):
-            sim.step({"moves": [], "repairs": 0}, [])
-        self.assertEqual(sim.get_cash(), 400)
-        record = sim.step({"moves": [], "repairs": 0}, [("A", "B", 7), ("C", "A", 3)])
+    def test_exactly_zero_closing_cash_is_not_bankrupt(self):
+        sim = BikeShare(cash=2400)
+        record = sim.step(no_action(), [])
         self.assertEqual(record["closing_cash"], 0)
         self.assertFalse(record["bankrupt"])
-        self.assertFalse(sim.is_bankrupt())
+        self.assertFalse(sim.is_finished())
 
-    def test_negative_closing_cash_ends_the_scheme(self):
-        sim = BikeShare()
-        for _ in range(4):
-            sim.step({"moves": [], "repairs": 0}, [])
-        sim.step({"moves": [], "repairs": 0}, [("A", "B", 7), ("C", "A", 3)])
-        bankrupt = sim.step({"moves": [], "repairs": 0}, [])
-        self.assertEqual(bankrupt["closing_cash"], -2400)
-        self.assertTrue(bankrupt["bankrupt"])
+    def test_closing_cash_below_zero_is_bankrupt_and_finished(self):
+        sim = BikeShare(cash=2399)
+        record = sim.step(no_action(), [])
+        self.assertEqual(record["closing_cash"], -1)
         self.assertTrue(sim.is_bankrupt())
-        bikes = sim.get_bikes()
-        with self.assertRaises(ValueError):
-            sim.step({"moves": [], "repairs": 0}, [])
-        self.assertEqual(sim.get_cash(), -2400)
-        self.assertEqual(sim.get_bikes(), bikes)
-        self.assertEqual(len(sim.get_history()), 6)
+        self.assertTrue(sim.is_finished())
 
-    def test_simulation_stops_after_the_maximum_number_of_days(self):
-        # Extra starting cash keeps empty days solvent until MAX_DAYS is reached.
-        with patch("bikeshare.STARTING_CASH", 100000):
-            sim = BikeShare()
-        for day in range(MAX_DAYS):
-            record = sim.step({"moves": [], "repairs": 0}, [])
-            self.assertEqual(record["day"], day + 1)
-            self.assertFalse(sim.is_bankrupt())
-        self.assertEqual(sim.get_day(), MAX_DAYS + 1)
-        self.assertEqual(len(sim.get_history()), MAX_DAYS)
+    def test_step_after_last_day_raises_runtime_error(self):
+        sim = BikeShare(days=1)
+        sim.step(no_action(), [])
+        self.assertTrue(sim.is_finished())
+        with self.assertRaises(RuntimeError):
+            sim.step(no_action(), [])
+
+
+class RejectedDecisionTests(unittest.TestCase):
+    def test_invalid_decision_shapes_are_rejected(self):
+        cases = {
+            "not a dict": [("B", "A", 3)],
+            "missing repairs": {"moves": []},
+            "four moves": {"moves": [("A", "B", 1)] * 4, "repairs": 0},
+            "two-item move": {"moves": [("A", "B")], "repairs": 0},
+            "unknown station": {"moves": [("A", "Z", 1)], "repairs": 0},
+            "same origin and destination": {"moves": [("A", "A", 1)], "repairs": 0},
+            "zero bikes": {"moves": [("A", "B", 0)], "repairs": 0},
+            "negative repairs": {"moves": [], "repairs": -1},
+        }
+        for label, decision in cases.items():
+            with self.subTest(label=label):
+                sim = BikeShare()
+                with self.assertRaises(ValueError):
+                    sim.step(decision, [])
+
+    def test_eleven_bikes_is_more_than_the_van_holds(self):
+        sim = BikeShare(stations=two_stations(20, 12, 15, 0))
         with self.assertRaises(ValueError):
-            sim.step({"moves": [], "repairs": 0}, [])
-        self.assertEqual(len(sim.get_history()), MAX_DAYS)
+            sim.step({"moves": [("A", "B", 11)], "repairs": 0}, [])
+
+    def test_move_needs_enough_bikes_at_origin(self):
+        # C has 6 bikes, B has 7 free docks, so only the origin is short.
+        sim = BikeShare()
+        with self.assertRaises(ValueError):
+            sim.step({"moves": [("C", "B", 7)], "repairs": 0}, [])
+
+    def test_cannot_repair_more_than_the_workshop_holds(self):
+        sim = BikeShare(workshop=1)
+        with self.assertRaises(ValueError):
+            sim.step({"moves": [], "repairs": 2}, [])
+
+    def test_repairs_must_fit_at_depot_after_moves(self):
+        # A has 2 free docks, but moving 2 bikes in fills it before repairs.
+        sim = BikeShare(stations=two_stations(10, 8, 10, 5), workshop=2)
+        with self.assertRaises(ValueError):
+            sim.step({"moves": [("B", "A", 2)], "repairs": 1}, [])
+
+    def test_invalid_trips_are_rejected(self):
+        cases = {
+            "negative count": [("A", "B", -1)],
+            "unknown station": [("A", "Z", 1)],
+            "two items": [("A", "B")],
+        }
+        for label, trips in cases.items():
+            with self.subTest(label=label):
+                sim = BikeShare()
+                with self.assertRaises(ValueError):
+                    sim.step(no_action(), trips)
 
 
 class CopyTests(unittest.TestCase):
     def test_c1_default_stations_and_simulations_stay_independent(self):
-        original_bikes = {
-            station_id: station.bikes for station_id, station in DEFAULT_STATIONS.items()
-        }
-        original_ids = {
-            station_id: id(station) for station_id, station in DEFAULT_STATIONS.items()
-        }
         first = BikeShare()
         second = BikeShare()
-        first.step(DAY_ONE, DAY_ONE_TRIPS)
-        self.assertEqual(second.get_bikes(), START_BIKES)
+        first.step(worked_example_decision(), worked_example_trips())
+        self.assertEqual(second.get_bikes(), {"A": 12, "B": 8, "C": 6})
         self.assertEqual(second.get_cash(), 10000)
-        self.assertEqual(second.get_day(), 1)
         self.assertEqual(
-            {station_id: station.bikes for station_id, station in DEFAULT_STATIONS.items()},
-            original_bikes,
+            DEFAULT_STATIONS,
+            {
+                "A": {"name": "Temple Meads", "capacity": 20, "bikes": 12},
+                "B": {"name": "Harbourside", "capacity": 15, "bikes": 8},
+                "C": {"name": "Clifton", "capacity": 12, "bikes": 6},
+            },
         )
-        self.assertEqual(
-            {station_id: id(station) for station_id, station in DEFAULT_STATIONS.items()},
-            original_ids,
-        )
-        self.assertIsNot(first.stations["A"], second.stations["A"])
-        self.assertIsNot(first.stations["A"], DEFAULT_STATIONS["A"])
 
-    def test_c2_returned_records_and_bike_counts_are_copies(self):
+    def test_c2_changing_returned_data_does_not_change_simulation(self):
         sim = BikeShare()
-        record = sim.step(DAY_ONE, DAY_ONE_TRIPS)
-        record["closing_cash"] = 0
+        record = sim.step(worked_example_decision(), worked_example_trips())
         record["bikes"]["A"] = 0
-        record["moves"].append(("A", "B", 1))
-        record["trips"].clear()
-        bikes = sim.get_bikes()
-        bikes["A"] = 0
-        history = sim.get_history()
-        history.clear()
+        sim.get_bikes()["B"] = 0
+        sim.get_history()[0]["closing_cash"] = 0
         self.assertEqual(sim.get_bikes(), {"A": 7, "B": 10, "C": 6})
-        self.assertEqual(len(sim.get_history()), 1)
-        stored = sim.get_history()[0]
-        self.assertEqual(stored["closing_cash"], 10100)
-        self.assertEqual(stored["bikes"]["A"], 7)
-        self.assertEqual(stored["moves"], [("B", "A", 3)])
-        self.assertEqual(len(stored["trips"]), 3)
-        sim.step({"moves": [], "repairs": 0}, [])
         self.assertEqual(sim.get_history()[0]["bikes"], {"A": 7, "B": 10, "C": 6})
         self.assertEqual(sim.get_history()[0]["closing_cash"], 10100)
 
-    def test_c3_a_later_failed_move_rolls_back_the_whole_day(self):
+    def test_c2_stored_record_is_unchanged_by_later_days(self):
+        sim = BikeShare()
+        sim.step(worked_example_decision(), worked_example_trips())
+        sim.step({"moves": [("B", "A", 3)], "repairs": 3}, [])
+        self.assertEqual(sim.get_history()[0]["bikes"], {"A": 7, "B": 10, "C": 6})
+        self.assertEqual(sim.get_history()[0]["workshop"], 3)
+
+    def test_c3_later_failed_move_changes_nothing(self):
+        # B->A 3 is valid, then C->B 7 fails because C has only 6 bikes.
         sim = BikeShare()
         with self.assertRaises(ValueError):
-            sim.step(
-                {"moves": [("B", "A", 3), ("B", "A", 8)], "repairs": 0},
-                DAY_ONE_TRIPS,
-            )
-        self.assertEqual(sim.get_day(), 1)
+            sim.step({"moves": [("B", "A", 3), ("C", "B", 7)], "repairs": 0}, [])
+        self.assertEqual(sim.get_bikes(), {"A": 12, "B": 8, "C": 6})
         self.assertEqual(sim.get_cash(), 10000)
-        self.assertEqual(sim.get_bikes(), START_BIKES)
+        self.assertEqual(sim.get_day(), 1)
         self.assertEqual(sim.get_workshop(), 0)
-        self.assertEqual(sim.get_history(), [])
-
-    def test_c3_failed_repairs_after_valid_moves_change_nothing(self):
-        sim = BikeShare()
-        sim.step(DAY_ONE, DAY_ONE_TRIPS)
-        before = (
-            sim.get_day(),
-            sim.get_cash(),
-            sim.get_bikes(),
-            sim.get_workshop(),
-            sim.get_history(),
-        )
-        with self.assertRaises(ValueError):
-            sim.step({"moves": [("B", "A", 10), ("C", "A", 3)], "repairs": 1}, [])
-        self.assertEqual(
-            (
-                sim.get_day(),
-                sim.get_cash(),
-                sim.get_bikes(),
-                sim.get_workshop(),
-                sim.get_history(),
-            ),
-            before,
-        )
-
-    def test_invalid_trips_are_rejected_before_any_move(self):
-        sim = BikeShare()
-        with self.assertRaises(ValueError):
-            sim.step(DAY_ONE, [("A", "A", 1)])
-        self.assertEqual(sim.get_bikes(), START_BIKES)
         self.assertEqual(sim.get_history(), [])
 
 

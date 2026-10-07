@@ -4,7 +4,7 @@ import json
 import sys
 
 from bikeshare import BikeShare
-from rules import MAX_DAYS, MAX_MOVES, VAN_CAPACITY, load_days, parse_int, pence_to_pounds
+from rules import load_days, parse_int, pence_to_pounds
 
 TRIPS_PATH = "data/trips.json"
 
@@ -19,13 +19,13 @@ def main():
         return
 
     day_count = ask_day_count(len(all_days))
-    scheme = BikeShare()
+    scheme = BikeShare(days=day_count)
     for trips in all_days[:day_count]:
+        if scheme.is_finished():
+            break
         print_status(scheme, trips)
         record = run_day(scheme, trips)
         print_summary(record)
-        if scheme.is_bankrupt():
-            break
     print_final(scheme)
 
 
@@ -55,15 +55,16 @@ def read_line(prompt):
 
 def ask_day_count(available):
     """Ask for 1 to 14 days. Enter selects 7 when that many trips exist."""
+    maximum = BikeShare.MAX_DAYS
     while True:
-        text = read_line(f"How many days to simulate? (1-{MAX_DAYS}, Enter for 7): ")
+        text = read_line(f"How many days to simulate? (1-{maximum}, Enter for 7): ")
         if text.strip() == "":
             chosen = 7
         else:
             try:
-                chosen = parse_int(text, 1, MAX_DAYS)
+                chosen = parse_int(text, 1, maximum)
             except ValueError:
-                print(f"Enter a whole number from 1 to {MAX_DAYS}, or press Enter for 7.")
+                print(f"Enter a whole number from 1 to {maximum}, or press Enter for 7.")
                 continue
         if chosen > available:
             print(f"The trips file has {available} days. Choose 1 to {available}.")
@@ -80,7 +81,7 @@ def print_status(scheme, trips):
     print("Stations:")
     for station in scheme.stations.values():
         print(
-            f"  {station.id} {station.name}: "
+            f"  {station.station_id} {station.name}: "
             f"{station.bikes} bikes, capacity {station.capacity}, "
             f"{station.free_docks()} free docks"
         )
@@ -105,7 +106,11 @@ def run_day(scheme, trips):
 def ask_decision(scheme):
     """Read a valid number of moves, each move, and the repair count."""
     station_ids = set(scheme.stations)
-    move_count = ask_int(f"How many van moves? (0-{MAX_MOVES}): ", 0, MAX_MOVES)
+    move_count = ask_int(
+        f"How many van moves? (0-{BikeShare.MAX_MOVES}): ",
+        0,
+        BikeShare.MAX_MOVES,
+    )
     moves = []
     for number in range(1, move_count + 1):
         moves.append(ask_move(number, station_ids))
@@ -128,15 +133,19 @@ def parse_move(text, station_ids):
     """Turn 'B A 5' into a move tuple, or raise ValueError."""
     parts = text.split()
     if len(parts) != 3:
-        raise ValueError("Enter the origin, destination and number of bikes, for example B A 5.")
+        raise ValueError(
+            "Enter the origin, destination and number of bikes, for example B A 5."
+        )
     origin = match_station(parts[0], station_ids)
     destination = match_station(parts[1], station_ids)
     if origin == destination:
         raise ValueError("Origin and destination must be different.")
     try:
-        count = parse_int(parts[2], 1, VAN_CAPACITY)
+        count = parse_int(parts[2], 1, BikeShare.VAN_CAPACITY)
     except ValueError:
-        raise ValueError(f"The number of bikes must be a whole number from 1 to {VAN_CAPACITY}.")
+        raise ValueError(
+            f"The number of bikes must be a whole number from 1 to {BikeShare.VAN_CAPACITY}."
+        )
     return origin, destination, count
 
 
@@ -179,7 +188,7 @@ def print_summary(record):
     print(f"Revenue: {pence_to_pounds(record['revenue'])}")
     print(f"Van cost: {pence_to_pounds(record['van_cost'])}")
     print(f"Repair cost: {pence_to_pounds(record['repair_cost'])}")
-    print(f"Daily cost: {pence_to_pounds(record['daily_cost'])}")
+    print(f"Daily cost: {pence_to_pounds(record['fixed_cost'])}")
     print(f"Cash at start: {pence_to_pounds(record['opening_cash'])}")
     print(f"Cash at end: {pence_to_pounds(record['closing_cash'])}")
 

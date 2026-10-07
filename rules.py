@@ -2,16 +2,6 @@
 
 import json
 
-FARE = 200
-DAILY_COST = 2400
-VAN_COST = 500
-REPAIR_COST = 200
-BREAK_RATE = 10
-VAN_CAPACITY = 10
-MAX_MOVES = 3
-MAX_DAYS = 14
-DEPOT = "A"
-
 
 def _require_ints(*values):
     """Raise TypeError unless every value is an int. Booleans are rejected."""
@@ -27,6 +17,10 @@ def parse_int(text, minimum=None, maximum=None):
     """
     if not isinstance(text, str):
         raise TypeError("text must be a str")
+    if minimum is not None and type(minimum) is not int:
+        raise TypeError("minimum must be an int or None")
+    if maximum is not None and type(maximum) is not int:
+        raise TypeError("maximum must be an int or None")
     stripped = text.strip()
     digits = stripped[1:] if stripped[:1] in "+-" else stripped
     if not digits or any(character not in "0123456789" for character in digits):

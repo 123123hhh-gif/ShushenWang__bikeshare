@@ -5,13 +5,15 @@ class Station:
     """One station, with a fixed number of docks and the bikes currently there."""
 
     def __init__(self, station_id, name, capacity, bikes):
-        if not isinstance(station_id, str) or not isinstance(name, str):
-            raise TypeError("station id and name must be strings")
-        if type(capacity) is not int or type(bikes) is not int:
-            raise TypeError("capacity and bikes must be ints")
-        if capacity < 0 or bikes < 0 or bikes > capacity:
-            raise ValueError("bikes must be between 0 and the station capacity")
-        self.id = station_id
+        if not isinstance(station_id, str) or not station_id:
+            raise ValueError("station_id must be a non-empty string")
+        if not isinstance(name, str) or not name:
+            raise ValueError("name must be a non-empty string")
+        if type(capacity) is not int or capacity < 1:
+            raise ValueError("capacity must be an int of 1 or more")
+        if type(bikes) is not int or bikes < 0 or bikes > capacity:
+            raise ValueError("bikes must be an int from 0 to capacity")
+        self.station_id = station_id
         self.name = name
         self.capacity = capacity
         self.bikes = bikes
@@ -20,18 +22,18 @@ class Station:
         """Return how many more bikes this station can accept."""
         return self.capacity - self.bikes
 
-    def undock(self, count):
+    def remove_bikes(self, count):
         """Remove count bikes. count may be zero."""
-        if type(count) is not int:
-            raise TypeError("count must be an int")
-        if count < 0 or count > self.bikes:
-            raise ValueError("not enough bikes to undock")
+        if type(count) is not int or count < 0:
+            raise ValueError("count must be an int of 0 or more")
+        if count > self.bikes:
+            raise ValueError("not enough bikes to remove")
         self.bikes -= count
 
-    def dock(self, count):
+    def add_bikes(self, count):
         """Add count bikes. count may be zero."""
-        if type(count) is not int:
-            raise TypeError("count must be an int")
-        if count < 0 or count > self.free_docks():
+        if type(count) is not int or count < 0:
+            raise ValueError("count must be an int of 0 or more")
+        if count > self.free_docks():
             raise ValueError("not enough free docks")
         self.bikes += count
