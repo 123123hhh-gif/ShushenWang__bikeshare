@@ -1,4 +1,10 @@
-"""Text interface for the bike-share simulation."""
+"""Text interface for the bike-share simulation.
+
+Author: Shushen Wang
+
+Loads the trips, asks the user for each day's van moves and repairs, runs
+BikeShare.step(), and prints a daily summary and the final result.
+"""
 
 import json
 import sys
@@ -7,6 +13,20 @@ from bikeshare import BikeShare
 from rules import load_days, parse_int, pence_to_pounds
 
 TRIPS_PATH = "data/trips.json"
+
+SUMMARY_COUNTS = (
+    ("Trips completed", "completed"),
+    ("Trips lost", "lost"),
+    ("Bikes broken", "broken"),
+)
+SUMMARY_MONEY = (
+    ("Revenue", "revenue"),
+    ("Van cost", "van_cost"),
+    ("Repair cost", "repair_cost"),
+    ("Daily cost", "fixed_cost"),
+    ("Cash at start", "opening_cash"),
+    ("Cash at end", "closing_cash"),
+)
 
 
 def main():
@@ -57,17 +77,21 @@ def ask_day_count(available):
     """Ask for 1 to 14 days. Enter selects 7 when that many trips exist."""
     maximum = BikeShare.MAX_DAYS
     while True:
-        text = read_line(f"How many days to simulate? (1-{maximum}, Enter for 7): ")
+        text = read_line(
+            f"How many days to simulate? (1-{maximum}, Enter for 7): "
+        )
         if text.strip() == "":
             chosen = 7
         else:
             try:
                 chosen = parse_int(text, 1, maximum)
             except ValueError:
-                print(f"Enter a whole number from 1 to {maximum}, or press Enter for 7.")
+                print(f"Enter a whole number from 1 to {maximum}, "
+                      "or press Enter for 7.")
                 continue
         if chosen > available:
-            print(f"The trips file has {available} days. Choose 1 to {available}.")
+            print(f"The trips file has {available} days. "
+                  f"Choose 1 to {available}.")
             continue
         return chosen
 
@@ -122,7 +146,9 @@ def ask_move(number, station_ids):
     """Read one move such as 'B A 5'."""
     names = ", ".join(sorted(station_ids))
     while True:
-        text = read_line(f"Move {number} (origin destination bikes, for example B A 5): ")
+        text = read_line(
+            f"Move {number} (origin destination bikes, for example B A 5): "
+        )
         try:
             return parse_move(text, station_ids)
         except ValueError as error:
@@ -133,19 +159,18 @@ def parse_move(text, station_ids):
     """Turn 'B A 5' into a move tuple, or raise ValueError."""
     parts = text.split()
     if len(parts) != 3:
-        raise ValueError(
-            "Enter the origin, destination and number of bikes, for example B A 5."
-        )
+        raise ValueError("Enter the origin, destination and number of "
+                         "bikes, for example B A 5.")
     origin = match_station(parts[0], station_ids)
     destination = match_station(parts[1], station_ids)
     if origin == destination:
         raise ValueError("Origin and destination must be different.")
+    capacity = BikeShare.VAN_CAPACITY
     try:
-        count = parse_int(parts[2], 1, BikeShare.VAN_CAPACITY)
+        count = parse_int(parts[2], 1, capacity)
     except ValueError:
-        raise ValueError(
-            f"The number of bikes must be a whole number from 1 to {BikeShare.VAN_CAPACITY}."
-        )
+        raise ValueError("The number of bikes must be a whole number "
+                         f"from 1 to {capacity}.") from None
     return origin, destination, count
 
 
@@ -182,15 +207,10 @@ def print_summary(record):
     """Print completed trips, losses, breakages, costs and cash."""
     print()
     print(f"Day {record['day']} summary")
-    print(f"Trips completed: {record['completed']}")
-    print(f"Trips lost: {record['lost']}")
-    print(f"Bikes broken: {record['broken']}")
-    print(f"Revenue: {pence_to_pounds(record['revenue'])}")
-    print(f"Van cost: {pence_to_pounds(record['van_cost'])}")
-    print(f"Repair cost: {pence_to_pounds(record['repair_cost'])}")
-    print(f"Daily cost: {pence_to_pounds(record['fixed_cost'])}")
-    print(f"Cash at start: {pence_to_pounds(record['opening_cash'])}")
-    print(f"Cash at end: {pence_to_pounds(record['closing_cash'])}")
+    for label, key in SUMMARY_COUNTS:
+        print(f"{label}: {record[key]}")
+    for label, key in SUMMARY_MONEY:
+        print(f"{label}: {pence_to_pounds(record[key])}")
 
 
 def print_final(scheme):

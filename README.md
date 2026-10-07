@@ -1,14 +1,12 @@
 # Bike-share simulation
+This is a text-based day-by-day simulation for a small bike-share system. It has three docking stations, a workshop for damaged bikes, and cash stored as integer pence. 
+Each day the operator can move bikes by van and pay to repair broken bikes. After that, trips run, some bikes break, and the day’s accounts are finalised. 
+The simulation stops once the selected number of days finish, or if cash becomes negative.
 
-A day-by-day text simulation of a small bike-share scheme with three docking
-stations, a workshop for broken bikes, and cash tracked as integer pence. Each
-day the operator may move bikes by van and pay for repairs; then expected trips
-run, some bikes break, and the books are closed. The run ends after the chosen
-number of days or if closing cash falls below zero.
 
 ## How to run
 
-From the project root, with Python 3:
+From the project root folder using Python 3.11 or newer:
 
 ```text
 python main.py
@@ -42,13 +40,11 @@ python -m unittest discover -s tests/student -v
 | `tests/test_public.py` | Staff public tests (do not change). |
 | `tests/student/` | Student tests for `rules.py`, `Station`, and `BikeShare`. |
 
-## Copying note
 
-`BikeShare.__init__` builds each `Station` from a deep copy of
-`DEFAULT_STATIONS` (a dict of plain dicts) or from a caller-supplied map. The
-live state holds mutable `Station` objects. A shared reference to those nested
-dicts, or later sharing the same `Station` between two simulations, would let
-one van move rewrite another run or the module defaults. The test
-`test_c1_default_stations_and_simulations_stay_independent` in
-`tests/student/test_bikeshare.py` steps one `BikeShare()` and checks that a
-second instance and `DEFAULT_STATIONS` still hold the starting bike counts.
+## Copying note
+Inside `BikeShare.step()`, I use `copy.deepcopy(self.stations)`. All changes are applied to this temporary draft state. The draft only replaces the live simulation state when all bike moves and repairs succeed.
+If I use a simple reference like `draft = self.stations`, any changes will modify the live stations directly. `copy.copy()` (shallow copy) also does not work properly. It copies the outer dictionary, but both dictionaries still reference the same mutable `Station` objects.
+With either of these incorrect approaches, partial changes can remain. For example, if the first bike move succeeds but a later operation fails and raises `ValueError`, the earlier successful change stays applied. This violates requirement C3.
+I have written a test named `test_c3_later_failed_move_changes_nothing` in `tests/student/test_bikeshare.py`. It runs a valid bike move followed by an impossible operation. The test verifies that station bike counts, cash, day counter and history all remain unchanged after the error.
+
+

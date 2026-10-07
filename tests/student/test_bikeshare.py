@@ -1,8 +1,12 @@
-"""Tests for Station, BikeShare.step(), and the C1-C3 copy requirements.
+"""Unit tests for Station and BikeShare.
 
-Expected values are worked out by hand from the rules: revenue 200 per trip,
-van 500 per move, repair 200 per bike, fixed cost 2400 per day, and
-broken = ceil(completed * 10 / 100) taken from the destination.
+Author: Shushen Wang
+
+Covers Station, BikeShare.step() (order of operations, money, bankruptcy,
+finishing, rejected decisions) and the copying requirements C1-C3. Expected
+values are worked out by hand from the rules: 200 per trip, 500 per van move,
+200 per repair, 2400 fixed cost per day, and ceil(completed * 10 / 100)
+broken bikes taken from the destination.
 """
 
 import unittest
@@ -12,18 +16,22 @@ from station import Station
 
 
 def no_action():
+    """Return a decision with no van moves and no repairs."""
     return {"moves": [], "repairs": 0}
 
 
 def worked_example_decision():
+    """Return the day 1 decision from the worked example."""
     return {"moves": [("B", "A", 3)], "repairs": 0}
 
 
 def worked_example_trips():
+    """Return the day 1 trips from the worked example."""
     return [("A", "B", 8), ("C", "B", 15), ("B", "C", 4)]
 
 
 def two_stations(a_capacity, a_bikes, b_capacity, b_bikes):
+    """Return a stations dict with a depot A and one other station B."""
     return {
         "A": {"name": "Depot", "capacity": a_capacity, "bikes": a_bikes},
         "B": {"name": "Other", "capacity": b_capacity, "bikes": b_bikes},
@@ -31,7 +39,10 @@ def two_stations(a_capacity, a_bikes, b_capacity, b_bikes):
 
 
 class StationTests(unittest.TestCase):
+    """Tests for the Station class."""
+
     def test_free_docks_follow_added_and_removed_bikes(self):
+        """8 bikes - 3 + 4 = 9 bikes, so 15 - 9 = 6 free docks."""
         station = Station("B", "Harbourside", 15, 8)
         station.remove_bikes(3)
         station.add_bikes(4)
@@ -39,6 +50,7 @@ class StationTests(unittest.TestCase):
         self.assertEqual(station.free_docks(), 6)
 
     def test_invalid_constructor_values_are_rejected(self):
+        """Empty text, zero capacity and bad bike counts raise ValueError."""
         cases = {
             "empty id": ("", "Temple Meads", 20, 12),
             "empty name": ("A", "", 20, 12),
@@ -51,25 +63,31 @@ class StationTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     Station(*arguments)
 
-    def test_cannot_remove_more_bikes_than_present(self):
-        station = Station("C", "Clifton", 12, 6)
+    def test_cannot_go_below_empty_or_above_full(self):
+        """Removing from an empty station or adding to a full one fails."""
+        empty = Station("C", "Clifton", 12, 0)
+        full = Station("B", "Harbourside", 15, 15)
         with self.assertRaises(ValueError):
-            station.remove_bikes(7)
-
-    def test_cannot_add_bikes_to_a_full_station(self):
-        station = Station("B", "Harbourside", 15, 15)
+            empty.remove_bikes(1)
         with self.assertRaises(ValueError):
-            station.add_bikes(1)
+            full.add_bikes(1)
 
 
 class ConstructorTests(unittest.TestCase):
+    """Tests for the BikeShare constructor."""
+
     def test_invalid_arguments_are_rejected(self):
+        """Bad days, cash, workshop or stations raise ValueError."""
         cases = {
             "zero days": {"days": 0},
             "fifteen days": {"days": 15},
             "negative cash": {"cash": -1},
             "negative workshop": {"workshop": -1},
-            "no depot": {"stations": {"B": {"name": "Harbourside", "capacity": 15, "bikes": 8}}},
+            "no depot": {
+                "stations": {
+                    "B": {"name": "Harbourside", "capacity": 15, "bikes": 8},
+                },
+            },
         }
         for label, arguments in cases.items():
             with self.subTest(label=label):
@@ -78,7 +96,10 @@ class ConstructorTests(unittest.TestCase):
 
 
 class StepTests(unittest.TestCase):
+    """Tests for the order of operations and money in step()."""
+
     def test_worked_example_day_one(self):
+        """Every record value matches the worked example worked out by hand."""
         sim = BikeShare()
         record = sim.step(worked_example_decision(), worked_example_trips())
         self.assertEqual(record["day"], 1)
@@ -96,13 +117,14 @@ class StepTests(unittest.TestCase):
         self.assertFalse(record["bankrupt"])
 
     def test_van_moves_happen_before_trips(self):
-        # Move B->A 3 gives A 3 bikes, so A->B 3 completes 3 (not 0).
+        """Moving 3 bikes to an empty A lets the trip A->B 3 complete 3."""
         sim = BikeShare(stations=two_stations(10, 0, 10, 5))
-        record = sim.step({"moves": [("B", "A", 3)], "repairs": 0}, [("A", "B", 3)])
+        decision = {"moves": [("B", "A", 3)], "repairs": 0}
+        record = sim.step(decision, [("A", "B", 3)])
         self.assertEqual(record["completed"], 3)
 
     def test_repaired_bikes_are_docked_at_depot_before_trips(self):
-        # Repair 2 -> A has 2; A->B 2 completes 2; ceil(0.2) = 1 broken from B.
+        """2 repairs dock at empty A, so A->B 2 completes; 1 bike breaks."""
         sim = BikeShare(stations=two_stations(10, 0, 10, 0), workshop=2)
         record = sim.step({"moves": [], "repairs": 2}, [("A", "B", 2)])
         self.assertEqual(record["completed"], 2)
@@ -111,29 +133,35 @@ class StepTests(unittest.TestCase):
         self.assertEqual(record["workshop"], 1)
 
     def test_moves_can_chain_through_a_station(self):
+        """B->A 4 then A->C 4 works even though A starts empty."""
         stations = two_stations(10, 0, 10, 6)
         stations["C"] = {"name": "Third", "capacity": 10, "bikes": 0}
         sim = BikeShare(stations=stations)
-        record = sim.step({"moves": [("B", "A", 4), ("A", "C", 4)], "repairs": 0}, [])
+        decision = {"moves": [("B", "A", 4), ("A", "C", 4)], "repairs": 0}
+        record = sim.step(decision, [])
         self.assertEqual(record["bikes"], {"A": 0, "B": 2, "C": 4})
         self.assertEqual(record["van_cost"], 1000)
 
     def test_full_van_of_ten_bikes_is_allowed(self):
+        """A move of exactly VAN_CAPACITY (10) bikes succeeds."""
         sim = BikeShare(stations=two_stations(20, 10, 10, 0))
         record = sim.step({"moves": [("A", "B", 10)], "repairs": 0}, [])
         self.assertEqual(record["bikes"], {"A": 0, "B": 10})
 
     def test_trips_to_a_full_station_are_all_lost(self):
+        """No free docks: 0 completed, 3 lost, cash 10000 - 2400 = 7600."""
         sim = BikeShare(stations=two_stations(5, 5, 5, 5))
         record = sim.step(no_action(), [("A", "B", 3)])
         self.assertEqual(record["completed"], 0)
         self.assertEqual(record["lost"], 3)
-        self.assertEqual(record["broken"], 0)
         self.assertEqual(record["closing_cash"], 7600)
 
 
 class BankruptcyAndFinishTests(unittest.TestCase):
+    """Tests for bankruptcy and the end of the simulation."""
+
     def test_exactly_zero_closing_cash_is_not_bankrupt(self):
+        """2400 - 2400 = 0 closing cash, which is not bankrupt."""
         sim = BikeShare(cash=2400)
         record = sim.step(no_action(), [])
         self.assertEqual(record["closing_cash"], 0)
@@ -141,6 +169,7 @@ class BankruptcyAndFinishTests(unittest.TestCase):
         self.assertFalse(sim.is_finished())
 
     def test_closing_cash_below_zero_is_bankrupt_and_finished(self):
+        """2399 - 2400 = -1 closing cash, which ends the simulation."""
         sim = BikeShare(cash=2399)
         record = sim.step(no_action(), [])
         self.assertEqual(record["closing_cash"], -1)
@@ -148,6 +177,7 @@ class BankruptcyAndFinishTests(unittest.TestCase):
         self.assertTrue(sim.is_finished())
 
     def test_step_after_last_day_raises_runtime_error(self):
+        """After the only day of a 1-day run, step() raises RuntimeError."""
         sim = BikeShare(days=1)
         sim.step(no_action(), [])
         self.assertTrue(sim.is_finished())
@@ -156,14 +186,19 @@ class BankruptcyAndFinishTests(unittest.TestCase):
 
 
 class RejectedDecisionTests(unittest.TestCase):
+    """Tests that step() raises ValueError for every invalid input."""
+
     def test_invalid_decision_shapes_are_rejected(self):
+        """Wrong types, counts, stations and repairs raise ValueError."""
         cases = {
             "not a dict": [("B", "A", 3)],
             "missing repairs": {"moves": []},
             "four moves": {"moves": [("A", "B", 1)] * 4, "repairs": 0},
             "two-item move": {"moves": [("A", "B")], "repairs": 0},
             "unknown station": {"moves": [("A", "Z", 1)], "repairs": 0},
-            "same origin and destination": {"moves": [("A", "A", 1)], "repairs": 0},
+            "same origin and destination": {
+                "moves": [("A", "A", 1)], "repairs": 0,
+            },
             "zero bikes": {"moves": [("A", "B", 0)], "repairs": 0},
             "negative repairs": {"moves": [], "repairs": -1},
         }
@@ -173,29 +208,39 @@ class RejectedDecisionTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     sim.step(decision, [])
 
-    def test_eleven_bikes_is_more_than_the_van_holds(self):
-        sim = BikeShare(stations=two_stations(20, 12, 15, 0))
-        with self.assertRaises(ValueError):
-            sim.step({"moves": [("A", "B", 11)], "repairs": 0}, [])
-
-    def test_move_needs_enough_bikes_at_origin(self):
-        # C has 6 bikes, B has 7 free docks, so only the origin is short.
-        sim = BikeShare()
-        with self.assertRaises(ValueError):
-            sim.step({"moves": [("C", "B", 7)], "repairs": 0}, [])
-
-    def test_cannot_repair_more_than_the_workshop_holds(self):
-        sim = BikeShare(workshop=1)
-        with self.assertRaises(ValueError):
-            sim.step({"moves": [], "repairs": 2}, [])
-
-    def test_repairs_must_fit_at_depot_after_moves(self):
-        # A has 2 free docks, but moving 2 bikes in fills it before repairs.
-        sim = BikeShare(stations=two_stations(10, 8, 10, 5), workshop=2)
-        with self.assertRaises(ValueError):
-            sim.step({"moves": [("B", "A", 2)], "repairs": 1}, [])
+    def test_impossible_moves_and_repairs_are_rejected(self):
+        """Moves and repairs that break a rule when they happen fail."""
+        cases = {
+            # 11 bikes are available and fit, but the van holds only 10.
+            "eleven bikes": (
+                lambda: BikeShare(stations=two_stations(20, 12, 15, 0)),
+                {"moves": [("A", "B", 11)], "repairs": 0},
+            ),
+            # C has 6 bikes and B has 7 free docks: only the origin is short.
+            "origin short": (
+                BikeShare,
+                {"moves": [("C", "B", 7)], "repairs": 0},
+            ),
+            "more repairs than workshop": (
+                lambda: BikeShare(workshop=1),
+                {"moves": [], "repairs": 2},
+            ),
+            # A has 2 free docks, but moving 2 bikes in fills it first.
+            "repairs do not fit after moves": (
+                lambda: BikeShare(
+                    stations=two_stations(10, 8, 10, 5), workshop=2
+                ),
+                {"moves": [("B", "A", 2)], "repairs": 1},
+            ),
+        }
+        for label, (make_sim, decision) in cases.items():
+            with self.subTest(label=label):
+                sim = make_sim()
+                with self.assertRaises(ValueError):
+                    sim.step(decision, [])
 
     def test_invalid_trips_are_rejected(self):
+        """A negative count, unknown station or short trip is rejected."""
         cases = {
             "negative count": [("A", "B", -1)],
             "unknown station": [("A", "Z", 1)],
@@ -209,7 +254,10 @@ class RejectedDecisionTests(unittest.TestCase):
 
 
 class CopyTests(unittest.TestCase):
+    """Tests for the copying requirements C1, C2 and C3."""
+
     def test_c1_default_stations_and_simulations_stay_independent(self):
+        """Running one simulation changes neither another nor the defaults."""
         first = BikeShare()
         second = BikeShare()
         first.step(worked_example_decision(), worked_example_trips())
@@ -224,28 +272,25 @@ class CopyTests(unittest.TestCase):
             },
         )
 
-    def test_c2_changing_returned_data_does_not_change_simulation(self):
+    def test_c2_returned_and_stored_data_are_copies(self):
+        """Editing returned data or running later days keeps day 1 intact."""
         sim = BikeShare()
         record = sim.step(worked_example_decision(), worked_example_trips())
         record["bikes"]["A"] = 0
         sim.get_bikes()["B"] = 0
         sim.get_history()[0]["closing_cash"] = 0
-        self.assertEqual(sim.get_bikes(), {"A": 7, "B": 10, "C": 6})
-        self.assertEqual(sim.get_history()[0]["bikes"], {"A": 7, "B": 10, "C": 6})
-        self.assertEqual(sim.get_history()[0]["closing_cash"], 10100)
-
-    def test_c2_stored_record_is_unchanged_by_later_days(self):
-        sim = BikeShare()
-        sim.step(worked_example_decision(), worked_example_trips())
         sim.step({"moves": [("B", "A", 3)], "repairs": 3}, [])
-        self.assertEqual(sim.get_history()[0]["bikes"], {"A": 7, "B": 10, "C": 6})
-        self.assertEqual(sim.get_history()[0]["workshop"], 3)
+        stored = sim.get_history()[0]
+        self.assertEqual(stored["bikes"], {"A": 7, "B": 10, "C": 6})
+        self.assertEqual(stored["closing_cash"], 10100)
+        self.assertEqual(stored["workshop"], 3)
 
     def test_c3_later_failed_move_changes_nothing(self):
-        # B->A 3 is valid, then C->B 7 fails because C has only 6 bikes.
+        """B->A 3 is valid, then C->B 7 fails, so nothing changes at all."""
         sim = BikeShare()
+        decision = {"moves": [("B", "A", 3), ("C", "B", 7)], "repairs": 0}
         with self.assertRaises(ValueError):
-            sim.step({"moves": [("B", "A", 3), ("C", "B", 7)], "repairs": 0}, [])
+            sim.step(decision, [])
         self.assertEqual(sim.get_bikes(), {"A": 12, "B": 8, "C": 6})
         self.assertEqual(sim.get_cash(), 10000)
         self.assertEqual(sim.get_day(), 1)

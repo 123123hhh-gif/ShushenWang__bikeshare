@@ -1,46 +1,70 @@
-"""Unit tests for every function in rules.py."""
+"""Unit tests for the functions in rules.py.
+
+Author: Shushen Wang
+
+Covers parse_int, pence_to_pounds, completed_trips, breakages and load_days:
+normal cases, boundaries and errors. Expected values are worked out by hand
+from the rules, not copied from running the code.
+"""
 
 import json
 import os
 import tempfile
 import unittest
 
-from rules import breakages, completed_trips, load_days, parse_int, pence_to_pounds
+from rules import (
+    breakages,
+    completed_trips,
+    load_days,
+    parse_int,
+    pence_to_pounds,
+)
 
-PROJECT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+TESTS_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+PROJECT = os.path.dirname(TESTS_DIR)
 TRIPS_PATH = os.path.join(PROJECT, "data", "trips.json")
 
 
 class ParseIntTests(unittest.TestCase):
+    """Tests for parse_int(text, minimum, maximum)."""
+
     def test_surrounding_spaces_are_ignored(self):
+        """Spaces around the digits do not stop the conversion."""
         self.assertEqual(parse_int(" 7 ", 1, 14), 7)
 
-    def test_range_is_inclusive_at_both_ends(self):
+    def test_range_is_inclusive(self):
+        """Both bounds are allowed; one past either bound is rejected."""
         self.assertEqual(parse_int("1", 1, 14), 1)
         self.assertEqual(parse_int("14", 1, 14), 14)
-
-    def test_value_outside_range_is_rejected(self):
+        with self.assertRaises(ValueError):
+            parse_int("0", 1, 14)
         with self.assertRaises(ValueError):
             parse_int("15", 1, 14)
 
     def test_blank_and_non_whole_numbers_are_rejected(self):
+        """Blank text, letters and decimals raise ValueError."""
         for text in ("", "   ", "abc", "7.5"):
             with self.subTest(text=text):
                 with self.assertRaises(ValueError):
                     parse_int(text)
 
     def test_non_string_is_a_type_error(self):
+        """Passing an int instead of text raises TypeError."""
         with self.assertRaises(TypeError):
             parse_int(7)
 
 
 class PenceToPoundsTests(unittest.TestCase):
+    """Tests for pence_to_pounds(pence)."""
+
     def test_formats_pounds_and_pence(self):
+        """Large, small and negative amounts use the £x.yy format."""
         self.assertEqual(pence_to_pounds(12345), "£123.45")
         self.assertEqual(pence_to_pounds(5), "£0.05")
         self.assertEqual(pence_to_pounds(-250), "-£2.50")
 
     def test_non_int_is_a_type_error(self):
+        """Floats, strings and booleans are not accepted as pence."""
         for pence in (1.5, "100", True):
             with self.subTest(pence=pence):
                 with self.assertRaises(TypeError):
@@ -48,52 +72,58 @@ class PenceToPoundsTests(unittest.TestCase):
 
 
 class CompletedTripsTests(unittest.TestCase):
+    """Tests for completed_trips(requested, bikes, free_docks)."""
+
     def test_takes_the_smallest_limit(self):
-        # Worked example: min(8, 15, 10) = 8 and min(15, 6, 3) = 3.
+        """Worked example: min(8, 15, 10) = 8 and min(15, 6, 3) = 3."""
         self.assertEqual(completed_trips(8, 15, 10), 8)
         self.assertEqual(completed_trips(15, 6, 3), 3)
 
-    def test_negative_value_is_rejected(self):
+    def test_invalid_arguments_are_rejected(self):
+        """A negative value is a ValueError; a non-int is a TypeError."""
         with self.assertRaises(ValueError):
             completed_trips(5, -1, 5)
-
-    def test_non_int_is_a_type_error(self):
         with self.assertRaises(TypeError):
             completed_trips(5, 5.0, 5)
 
 
 class BreakagesTests(unittest.TestCase):
-    def test_partial_bike_rounds_up(self):
-        # 7 trips at 10% is 0.7 bikes, which rounds up to 1.
-        self.assertEqual(breakages(7, 10), 1)
+    """Tests for breakages(completed, rate_percent)."""
 
-    def test_whole_number_of_bikes_is_not_rounded_further(self):
-        # 10 trips at 10% is exactly 1 bike; 11 trips is 1.1, so 2.
+    def test_only_partial_bikes_round_up(self):
+        """0.7 bikes becomes 1, exactly 1.0 stays 1, and 1.1 becomes 2."""
+        self.assertEqual(breakages(7, 10), 1)
         self.assertEqual(breakages(10, 10), 1)
         self.assertEqual(breakages(11, 10), 2)
 
-    def test_rate_above_100_is_rejected(self):
+    def test_invalid_arguments_are_rejected(self):
+        """A rate above 100 is a ValueError; a non-int is a TypeError."""
         with self.assertRaises(ValueError):
             breakages(5, 101)
-
-    def test_non_int_is_a_type_error(self):
         with self.assertRaises(TypeError):
             breakages("5", 10)
 
 
 class LoadDaysTests(unittest.TestCase):
+    """Tests for load_days(path)."""
+
     def test_supplied_file_becomes_days_of_tuples(self):
+        """The supplied file has 14 days; day 1 matches the worked example."""
         days = load_days(TRIPS_PATH)
         self.assertEqual(len(days), 14)
-        self.assertEqual(days[0], [("A", "B", 8), ("C", "B", 15), ("B", "C", 4)])
+        self.assertEqual(
+            days[0], [("A", "B", 8), ("C", "B", 15), ("B", "C", 4)]
+        )
         self.assertIsInstance(days[0][0], tuple)
 
     def test_missing_file_raises_file_not_found(self):
+        """A path that does not exist lets FileNotFoundError propagate."""
         missing = os.path.join(PROJECT, "data", "no_such_file.json")
         with self.assertRaises(FileNotFoundError):
             load_days(missing)
 
     def test_wrong_content_is_rejected(self):
+        """Each kind of badly formatted content raises ValueError."""
         samples = {
             "empty list": [],
             "not a list": {"A": 1},
@@ -110,6 +140,7 @@ class LoadDaysTests(unittest.TestCase):
                     load_days(path)
 
     def _write(self, content):
+        """Write content to a temporary JSON file and return its path."""
         handle = tempfile.NamedTemporaryFile(
             mode="w", suffix=".json", delete=False, encoding="utf-8"
         )
